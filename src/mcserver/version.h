@@ -1,0 +1,12 @@
+#ifndef VERSION_H
+#define VERSION_H
+
+enum version {
+	VERSION_SNAPSHOT,
+	VERSION_RELEASE,
+	VERSION_BETA,
+	VERSION_ALPHA,
+};
+
+/* VERSION_H */
+#endif
