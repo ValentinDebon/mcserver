@@ -190,7 +190,8 @@ storage_check_server_archive(const char *path, const uint8_t *ardigest, size_t a
 	close(fd);
 
 	if(memcmp(digest, ardigest, sizeof(digest)) != 0) {
-		warnx("Incoherent digest for downloaded archive, aborting!");
+		warnx("Incoherent digest for downloaded archive!");
+		return false;
 	}
 
 	return true;

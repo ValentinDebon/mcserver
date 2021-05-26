@@ -7,15 +7,15 @@ Command line tool to download, launch and manage Minecraft vanilla server instan
 MCServer will cache the version manifest, and download on-demand server jar archives.
 
 ```{sh}
-$ mcserver install # Install latest release archive
-$ mcserver -world . launch # Launch the latest release in the current working directory
+mcserver install # Install latest release archive
+mcserver -world . launch # Launch the latest release in the current working directory
 ```
 
 You can specify an explicit version, even an alpha or a beta
 
 ```{sh}
-$ mcserver -release 1.16.5 install
-$ mcserver -alpha a1.2.2a install
+mcserver -release 1.16.5 install
+mcserver -alpha a1.2.2a install
 ```
 
 ## Dependencies
