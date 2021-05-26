@@ -177,6 +177,7 @@ storage_check_server_archive(const char *path, const uint8_t *ardigest, size_t a
 
 	while(readval = read(fd, buffer, sizeof(buffer)), readval > 0) {
 		SHA1_Update(&ctx, buffer, readval);
+		arsize -= readval;
 	}
 
 	if(readval != 0) {
@@ -191,6 +192,11 @@ storage_check_server_archive(const char *path, const uint8_t *ardigest, size_t a
 
 	if(memcmp(digest, ardigest, sizeof(digest)) != 0) {
 		warnx("Incoherent digest for downloaded archive!");
+		return false;
+	}
+
+	if(arsize != 0) {
+		warnx("Incoherent size for downloaded archive!");
 		return false;
 	}
 
