@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(MCServer LANGUAGES C)
+project(MCServer
+	VERSION 0.0.1
+	DESCRIPTION "Minecraft Java Edition Vanilla Servers Manager"
+	HOMEPAGE_URL "https://github.com/ValentinDebon/mcserver"
+	LANGUAGES C
+)
 
 #########
 # Build #
@@ -8,8 +13,6 @@ project(MCServer LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
-
-option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 
 find_package(OpenSSL 1.1 REQUIRED)
 find_package(CURL 7.85.0 REQUIRED)
@@ -32,4 +35,14 @@ target_link_libraries(mcserver PUBLIC ${OPENSSL_LIBRARIES} ${CURL_LIBRARIES} ${J
 ###########
 
 install(TARGETS mcserver RUNTIME)
+install(FILES man/mcserver.1 TYPE MAN)
 
+#############
+# Packaging #
+#############
+
+set(CPACK_GENERATOR DEB)
+set(CPACK_PACKAGE_CONTACT "Valentin Debon <valentin.debon@heylelos.org>")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "java-runtime-headless, libcurl4 (>= 7.85.0), libssl3 (>= 1.1), libjson-c5")
+
+include(CPack)
