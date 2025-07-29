@@ -12,7 +12,7 @@ set(CMAKE_C_STANDARD_REQUIRED True)
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 
 find_package(OpenSSL 1.1 REQUIRED)
-find_package(CURL 7.64.1 REQUIRED)
+find_package(CURL 7.85.0 REQUIRED)
 
 find_path(JSON_C_INCLUDE_DIRS json-c/json.h REQUIRED)
 find_library(JSON_C_LIBRARIES json-c REQUIRED)

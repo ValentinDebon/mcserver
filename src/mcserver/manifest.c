@@ -63,7 +63,7 @@ manifest_init(const char *url, time_t ttu) {
 		}
 
 		curl_easy_setopt(easy, CURLOPT_URL, url);
-		curl_easy_setopt(easy, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+		curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "https");
 		curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, fwrite);
 		curl_easy_setopt(easy, CURLOPT_WRITEDATA, filep);
 
@@ -160,7 +160,7 @@ download_json(const char *url) {
 	CURL *easy = curl_easy_init();
 
 	curl_easy_setopt(easy, CURLOPT_URL, url);
-	curl_easy_setopt(easy, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+	curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "https");
 	curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, download_json_write);
 	curl_easy_setopt(easy, CURLOPT_WRITEDATA, &download);
 

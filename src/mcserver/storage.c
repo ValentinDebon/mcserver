@@ -11,7 +11,7 @@
 #include <err.h>
 
 #include <curl/curl.h>
-#include <openssl/sha.h>
+#include <openssl/evp.h>
 
 /* The terminating slash is important for path compositions */
 #ifdef __APPLE__
@@ -164,45 +164,54 @@ storage_download_progress(void *clientp, curl_off_t dltotal, curl_off_t dlnow, c
 }
 
 static bool
-storage_check_server_archive(const char *path, const uint8_t *ardigest, size_t arsize) {
+storage_check_server_archive(const char *path, const uint8_t *ardigest, size_t ardigestsz, size_t arsize) {
+	EVP_MD_CTX * const ctx = EVP_MD_CTX_new();
 	int fd = open(path, O_RDONLY);
-	char buffer[getpagesize()];
-	ssize_t readval;
-	SHA_CTX ctx;
+	bool success = false;
 
-	if (fd < 0) {
-		warn("open %s", path);
-		return false;
-	}
+	do {
+		char buffer[getpagesize()];
+		ssize_t readval;
 
-	SHA1_Init(&ctx);
+		if(fd < 0) {
+			warn("open %s", path);
+			break;
+		}
 
-	while (readval = read(fd, buffer, sizeof (buffer)), readval > 0) {
-		SHA1_Update(&ctx, buffer, readval);
-		arsize -= readval;
-	}
+		EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
 
-	if (readval != 0) {
-		warn("read %s", path);
-		return false;
-	}
+		while(readval = read(fd, buffer, sizeof(buffer)), readval > 0) {
+			EVP_DigestUpdate(ctx, buffer, readval);
+			arsize -= readval;
+		}
 
-	uint8_t digest[SHA_DIGEST_LENGTH];
+		if(readval != 0) {
+			warn("read %s", path);
+			break;
+		}
 
-	SHA1_Final(digest, &ctx);
+		uint8_t digest[EVP_MAX_MD_SIZE];
+		unsigned int digestsz;
+
+		EVP_DigestFinal_ex(ctx, digest, &digestsz);
+
+		if(ardigestsz != digestsz || memcmp(digest, ardigest, digestsz) != 0) {
+			warnx("Incoherent digest for downloaded archive!");
+			break;
+		}
+
+		if(arsize != 0) {
+			warnx("Incoherent size for downloaded archive!");
+			break;
+		}
+
+		success = true;
+	} while (0);
+
 	close(fd);
+	EVP_MD_CTX_free(ctx);
 
-	if (memcmp(digest, ardigest, sizeof (digest)) != 0) {
-		warnx("Incoherent digest for downloaded archive!");
-		return false;
-	}
-
-	if (arsize != 0) {
-		warnx("Incoherent size for downloaded archive!");
-		return false;
-	}
-
-	return true;
+	return success;
 }
 
 void
@@ -220,7 +229,7 @@ storage_download_server_archive(enum version version, const char *id, const stru
 	}
 
 	curl_easy_setopt(easy, CURLOPT_URL, archive->url);
-	curl_easy_setopt(easy, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+	curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "https");
 	curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, fwrite);
 	curl_easy_setopt(easy, CURLOPT_WRITEDATA, filep);
 
@@ -238,7 +247,7 @@ storage_download_server_archive(enum version version, const char *id, const stru
 	curl_easy_cleanup(easy);
 	fclose(filep);
 
-	if (!storage_check_server_archive(path, archive->sha1, archive->size)) {
+	if (!storage_check_server_archive(path, archive->sha1, sizeof (archive->sha1), archive->size)) {
 		unlink(path);
 		errx(EXIT_FAILURE, "Unable to check validity of archive for version %s", id);
 	}
