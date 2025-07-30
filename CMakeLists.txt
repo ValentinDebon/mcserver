@@ -7,6 +7,13 @@ project(MCServer
 	LANGUAGES C
 )
 
+set(MCSERVER_VERSION_MANIFEST_URL
+	"https://launchermeta.mojang.com/mc/game/version_manifest.json"
+	CACHE STRING "URL of the Mojang Minecraft Java Editions Manifest")
+
+set(MCSERVER_VERSION_MANIFEST_MAX_AGE 172800
+	CACHE STRING "Cache Freshness limit of the Mojang Minecraft Java Editions Manifest")
+
 #########
 # Build #
 #########
@@ -22,12 +29,15 @@ find_library(JSON_C_LIBRARIES json-c REQUIRED)
 
 include_directories(${OPENSSL_INCLUDE_DIR} ${CURL_INCLUDE_DIRS} ${JSON_C_INCLUDE_DIRS})
 
+configure_file(src/mcserver/config.h.in src/mcserver/config.h)
+
 add_executable(mcserver
 	src/mcserver/main.c
 	src/mcserver/manifest.c
 	src/mcserver/storage.c
 )
 
+target_include_directories(mcserver PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/src/mcserver")
 target_link_libraries(mcserver PUBLIC ${OPENSSL_LIBRARIES} ${CURL_LIBRARIES} ${JSON_C_LIBRARIES})
 
 ###########

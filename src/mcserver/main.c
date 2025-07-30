@@ -5,17 +5,24 @@
 #include <getopt.h>
 #include <err.h>
 
+#include "config.h"
 #include "storage.h"
 #include "manifest.h"
 
-/* 48h default time to use for cache */
-#define MCSERVER_DEFAULT_TTU 172800
-#define MCSERVER_DEFAULT_KEEP 10
-#define MCSERVER_DEFAULT_VERSION_MANIFEST_URL "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+enum mcserver_option {
+	MCSERVER_OPTION_SNAPSHOT,
+	MCSERVER_OPTION_RELEASE,
+	MCSERVER_OPTION_BETA,
+	MCSERVER_OPTION_ALPHA,
+	MCSERVER_OPTION_JVM,
+	MCSERVER_OPTION_WORLD,
+	MCSERVER_OPTION_HELP,
+	MCSERVER_OPTION_NOCACHE,
+};
 
 struct mcserver_args {
-	const char *data, *manifesturl;
-	time_t ttu; /* Time to use, before updating local version manifest */
+	const char *data;
+	time_t max_age;
 
 	const char *jvm;
 	const char *world;
@@ -30,18 +37,14 @@ struct mcserver_command {
 };
 
 static const struct option longopts[] = {
-	{ "snapshot", required_argument },
-	{ "release",  required_argument },
-	{ "beta",     required_argument },
-	{ "alpha",    required_argument },
-
-	{ "manifest-url", required_argument },
-	{ "jvm", required_argument },
-	{ "world", required_argument },
-
-	{ "help", no_argument },
-	{ "nocache", no_argument },
-
+	[MCSERVER_OPTION_SNAPSHOT] = { "snapshot", required_argument },
+	[MCSERVER_OPTION_RELEASE]  = { "release", required_argument },
+	[MCSERVER_OPTION_BETA]     = { "beta", required_argument },
+	[MCSERVER_OPTION_ALPHA]    = { "alpha", required_argument },
+	[MCSERVER_OPTION_JVM]      = { "jvm", required_argument },
+	[MCSERVER_OPTION_WORLD]    = { "world", required_argument },
+	[MCSERVER_OPTION_HELP]     = { "help", no_argument },
+	[MCSERVER_OPTION_NOCACHE]  = { "nocache", no_argument },
 	{ },
 };
 
@@ -95,8 +98,8 @@ static const struct mcserver_command commands[] = {
 
 static void
 mcserver_usage(const char *mcservername) {
-	fprintf(stderr, "usage: %1$s [-cache <duration>] [-manifest-url <url>] [-snapshot <id> | -release <id> | -beta <id> | -alpha <id>] install\n"
-		        "       %1$s [-jvm <java>] [-snapshot <id> | -release <id> | -beta <id> | -alpha <id>] launch\n"
+	fprintf(stderr, "usage: %1$s [-snapshot <id>] [-release <id>] [-beta <id>] [-alpha <id>]"
+					" [-jvm <path] [-world <path>] [-nocache] install|launch|version\n"
 		        "       %1$s -help\n",
 		mcservername);
 	exit(EXIT_FAILURE);
@@ -106,8 +109,7 @@ static struct mcserver_args
 mcserver_parse_args(int argc, char **argv) {
 	struct mcserver_args args = {
 		.data = NULL,
-		.manifesturl = MCSERVER_DEFAULT_VERSION_MANIFEST_URL,
-		.ttu = MCSERVER_DEFAULT_TTU,
+		.max_age = CONFIG_VERSION_MANIFEST_MAX_AGE,
 
 		.version = VERSION_RELEASE,
 		.id = "latest",
@@ -121,29 +123,28 @@ mcserver_parse_args(int argc, char **argv) {
 		switch (c) {
 		case 0:
 			switch (longindex) {
-			case 0:
+			case MCSERVER_OPTION_SNAPSHOT:
 				args.version = VERSION_SNAPSHOT;
 				args.id = optarg;
 				break;
-			case 1:
+			case MCSERVER_OPTION_RELEASE:
 				args.version = VERSION_RELEASE;
 				args.id = optarg;
 				break;
-			case 2:
+			case MCSERVER_OPTION_BETA:
 				args.version = VERSION_BETA;
 				args.id = optarg;
 				break;
-			case 3:
+			case MCSERVER_OPTION_ALPHA:
 				args.version = VERSION_ALPHA;
 				args.id = optarg;
 				break;
-			case 4: args.manifesturl = optarg; break;
-			case 5: args.jvm = optarg; break;
-			case 6: args.world = optarg; break;
-			case 7:
+			case MCSERVER_OPTION_JVM: args.jvm = optarg; break;
+			case MCSERVER_OPTION_WORLD: args.world = optarg; break;
+			case MCSERVER_OPTION_HELP:
 				mcserver_usage(*argv);
-			case 8:
-				args.ttu = 0;
+			case MCSERVER_OPTION_NOCACHE:
+				args.max_age = 0;
 				break;
 			}
 			break;
@@ -180,7 +181,7 @@ main(int argc, char **argv) {
 	}
 
 	storage_init(args.data);
-	manifest_init(args.manifesturl, args.ttu);
+	manifest_init(CONFIG_VERSION_MANIFEST_URL, args.max_age);
 
 	current->run(&args);
 
