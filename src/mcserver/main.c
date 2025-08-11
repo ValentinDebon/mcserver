@@ -3,187 +3,217 @@
 #include <string.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <limits.h>
 #include <err.h>
 
+#include <stdbool.h>
+#include <stdnoreturn.h>
+
 #include "config.h"
-#include "storage.h"
 #include "manifest.h"
+#include "storage.h"
 
 enum mcserver_option {
-	MCSERVER_OPTION_SNAPSHOT,
-	MCSERVER_OPTION_RELEASE,
-	MCSERVER_OPTION_BETA,
-	MCSERVER_OPTION_ALPHA,
-	MCSERVER_OPTION_JVM,
+	MCSERVER_OPTION_VERSION,
 	MCSERVER_OPTION_WORLD,
-	MCSERVER_OPTION_HELP,
+	MCSERVER_OPTION_JVM,
+	MCSERVER_OPTION_NOUPDATE,
 	MCSERVER_OPTION_NOCACHE,
+	MCSERVER_OPTION_HELP,
+};
+
+enum mcserver_synopsis {
+	MCSERVER_SYNOPSIS_LAUNCH,
+	MCSERVER_SYNOPSIS_INSTALL,
 };
 
 struct mcserver_args {
-	const char *data;
+	char *version;
+	char *world;
+	char *jvm;
+
 	time_t max_age;
 
-	const char *jvm;
-	const char *world;
-
-	const char *id;
-	enum version version;
-};
-
-struct mcserver_command {
-	const char * const name;
-	void (* const run)(const struct mcserver_args *);
+	enum mcserver_synopsis synopsis;
 };
 
 static const struct option longopts[] = {
-	[MCSERVER_OPTION_SNAPSHOT] = { "snapshot", required_argument },
-	[MCSERVER_OPTION_RELEASE]  = { "release", required_argument },
-	[MCSERVER_OPTION_BETA]     = { "beta", required_argument },
-	[MCSERVER_OPTION_ALPHA]    = { "alpha", required_argument },
-	[MCSERVER_OPTION_JVM]      = { "jvm", required_argument },
+	[MCSERVER_OPTION_VERSION]  = { "version", required_argument },
 	[MCSERVER_OPTION_WORLD]    = { "world", required_argument },
-	[MCSERVER_OPTION_HELP]     = { "help", no_argument },
+	[MCSERVER_OPTION_JVM]      = { "jvm", required_argument },
+	[MCSERVER_OPTION_NOUPDATE] = { "noupdate", no_argument },
 	[MCSERVER_OPTION_NOCACHE]  = { "nocache", no_argument },
+	[MCSERVER_OPTION_HELP]     = { "help", no_argument },
 	{ },
 };
 
-static void
-mcserver_version(const struct mcserver_args *args) {
-	puts(manifest_resolve(args->version, args->id));
-}
-
-static void
-mcserver_install(const struct mcserver_args *args) {
-	const enum version version = args->version;
-	const char * const id = manifest_resolve(version, args->id);
-	struct server_archive archive;
-
-	manifest_server_archive_fetch(version, id, &archive);
-
-	storage_download_server_archive(version, id, &archive);
-
-	manifest_server_archive_cleanup(&archive);
-}
-
-static void
-mcserver_launch(const struct mcserver_args *args) {
-	const enum version version = args->version;
-	const char * const id = manifest_resolve(version, args->id);
-	const char * const path = storage_server_archive_path(version, id);
-	char * const arguments[] = {
-		(char *)args->jvm,
-		"-Xmx1024M", "-Xms1024M",
-		"-jar", (char *)path,
-		NULL
-	};
-
-	if (args->world == NULL) {
-		errx(EXIT_FAILURE, "You must specifiy a world directory when launching a server!");
-	}
-
-	if (chdir(args->world) != 0) {
-		err(EXIT_FAILURE, "chdir %s", args->world);
-	}
-
-	execvp(args->jvm, arguments);
-	err(EXIT_FAILURE, "execvp %s (%s)", args->jvm, path);
-}
-
-static const struct mcserver_command commands[] = {
-	{ "version", mcserver_version },
-	{ "install", mcserver_install },
-	{ "launch",  mcserver_launch },
+static const char * const synopses_names[] = {
+	[MCSERVER_SYNOPSIS_LAUNCH]  = "launch",
+	[MCSERVER_SYNOPSIS_INSTALL] = "install",
 };
 
-static void
-mcserver_usage(const char *mcservername) {
-	fprintf(stderr, "usage: %1$s [-snapshot <id>] [-release <id>] [-beta <id>] [-alpha <id>]"
-					" [-jvm <path] [-world <path>] [-nocache] install|launch|version\n"
-		        "       %1$s -help\n",
-		mcservername);
-	exit(EXIT_FAILURE);
+static noreturn void
+mcserver_launch(const struct mcserver_args *args, int argc, char **argv) {
+	char *path;
+
+	manifest_install_version(args->version, &path);
+
+	char ** const xargv = malloc((6 + argc - optind) * sizeof (*xargv));
+	unsigned int i = 0;
+
+	xargv[i++] = args->jvm;
+	xargv[i++] = "-Xmx1024M";
+	xargv[i++] = "-Xms1024M";
+
+	while (optind < argc) {
+		xargv[i++] = argv[optind++];
+	}
+
+	xargv[i++] = "-jar";
+	xargv[i++] = path;
+	xargv[i] = NULL;
+
+	const char * const workdir = storage_world_directory(args->world);
+	if (chdir(workdir) != 0) {
+		err(EXIT_FAILURE, "chdir '%s'", workdir);
+	}
+
+	execvp(args->jvm, xargv);
+
+	err(EXIT_FAILURE, "execvp %s (-jar %s)", args->jvm, path);
+}
+
+static noreturn void
+mcserver_install(const struct mcserver_args *args) {
+
+	manifest_install_version(args->version, NULL);
+
+	exit(EXIT_SUCCESS);
+}
+
+static noreturn void
+mcserver_usage(const char *name, int status) {
+	fprintf(stderr, "usage: %1$s [-version <version>] [-world <name>] [-jvm <path>] [-noupdate] [-nocache] launch ...\n"
+	                "       %1$s [-version <version>] [-noupdate] [-nocache] install\n"
+	                "       %1$s -help\n", name);
+	exit(status);
 }
 
 static struct mcserver_args
 mcserver_parse_args(int argc, char **argv) {
 	struct mcserver_args args = {
-		.data = NULL,
 		.max_age = CONFIG_VERSION_MANIFEST_MAX_AGE,
-
-		.version = VERSION_RELEASE,
-		.id = "latest",
-
-		.jvm = "java",
-		.world = NULL,
 	};
+	bool noupdate = false, nocache = false, help = false;
 	int longindex, c;
 
-	while (c = getopt_long_only(argc, argv, ":", longopts, &longindex), c != -1) {
+	while ((c = getopt_long_only(argc, argv, ":", longopts, &longindex)) != -1) {
 		switch (c) {
 		case 0:
 			switch (longindex) {
-			case MCSERVER_OPTION_SNAPSHOT:
-				args.version = VERSION_SNAPSHOT;
-				args.id = optarg;
+			case MCSERVER_OPTION_VERSION:
+				args.version = optarg;
 				break;
-			case MCSERVER_OPTION_RELEASE:
-				args.version = VERSION_RELEASE;
-				args.id = optarg;
+			case MCSERVER_OPTION_WORLD:
+				args.world = optarg;
 				break;
-			case MCSERVER_OPTION_BETA:
-				args.version = VERSION_BETA;
-				args.id = optarg;
+			case MCSERVER_OPTION_JVM:
+				args.jvm = optarg;
 				break;
-			case MCSERVER_OPTION_ALPHA:
-				args.version = VERSION_ALPHA;
-				args.id = optarg;
+			case MCSERVER_OPTION_NOUPDATE:
+				noupdate = true;
 				break;
-			case MCSERVER_OPTION_JVM: args.jvm = optarg; break;
-			case MCSERVER_OPTION_WORLD: args.world = optarg; break;
-			case MCSERVER_OPTION_HELP:
-				mcserver_usage(*argv);
 			case MCSERVER_OPTION_NOCACHE:
-				args.max_age = 0;
+				nocache = true;
+				break;
+			case MCSERVER_OPTION_HELP:
+				help = true;
 				break;
 			}
 			break;
 		case '?':
 			fprintf(stderr, "%s: Invalid option %s\n", *argv, argv[optind - 1]);
-			mcserver_usage(*argv);
+			mcserver_usage(*argv, EXIT_FAILURE);
 		case ':':
 			fprintf(stderr, "%s: Missing option argument after -%s\n", *argv, longopts[longindex].name);
-			mcserver_usage(*argv);
+			mcserver_usage(*argv, EXIT_FAILURE);
 		}
 	}
 
-	if (argc - optind != 1) {
-		mcserver_usage(*argv);
+	if (help) {
+		mcserver_usage(*argv, EXIT_SUCCESS);
+	}
+
+	if (argc - optind == 0) {
+		mcserver_usage(*argv, EXIT_FAILURE);
+	}
+
+	const unsigned int synopses_count = sizeof (synopses_names) / sizeof (*synopses_names);
+	const char * const synopsis_name = argv[optind];
+
+	while (args.synopsis < synopses_count
+		&& strcmp(synopses_names[args.synopsis], synopsis_name) != 0) {
+		args.synopsis++;
+	}
+
+	if (args.synopsis == synopses_count) {
+		fprintf(stderr, "%s: Invalid synopsis '%s'\n", *argv, synopsis_name);
+		mcserver_usage(*argv, EXIT_FAILURE);
+	}
+	optind++;
+
+	if (noupdate && nocache) {
+		fprintf(stderr, "%s: Options noupdate and nocache together are nonsensical\n", *argv);
+		mcserver_usage(*argv, EXIT_FAILURE);
+	}
+
+	if (args.version == NULL) {
+		args.version = "latest";
+	}
+
+	if (args.synopsis == MCSERVER_SYNOPSIS_LAUNCH) {
+		if (args.world == NULL) {
+			const size_t worldsz = HOST_NAME_MAX + 1;
+			char * const world = malloc(worldsz);
+
+			if (gethostname(world, worldsz) != 0) {
+				err(EXIT_FAILURE, "gethostname");
+			}
+			world[HOST_NAME_MAX] = '\0';
+
+			args.world = world;
+			/* NB: Will leak, missing free. */
+		}
+
+		if (args.jvm == NULL) {
+			args.jvm = "java";
+		}
+	} else if (args.world != NULL || args.jvm != NULL) {
+		fprintf(stderr, "%s: Options world and jvm can only be used for launch\n", *argv);
+		mcserver_usage(*argv, EXIT_FAILURE);
+	}
+
+	if (nocache) {
+		args.max_age = 0;
+	} else if (noupdate) {
+		args.max_age = _Generic ((time_t)0,
+			int: INT_MAX, long: LONG_MAX,
+			long long: LLONG_MAX);
 	}
 
 	return args;
 }
 
 int
-main(int argc, char **argv) {
+main(int argc, char *argv[]) {
 	const struct mcserver_args args = mcserver_parse_args(argc, argv);
-	const struct mcserver_command *current = commands,
-		* const commandsend = commands + sizeof (commands) / sizeof (*commands);
-	const char * const commandname = argv[optind], **argpos;
 
-	while (current != commandsend && strcmp(commandname, current->name) != 0) {
-		current++;
+	manifest_setup(CONFIG_VERSION_MANIFEST_URL, args.max_age);
+
+	switch (args.synopsis) {
+	case MCSERVER_SYNOPSIS_LAUNCH:
+		mcserver_launch(&args, argc, argv);
+	case MCSERVER_SYNOPSIS_INSTALL:
+		mcserver_install(&args);
 	}
-
-	if (current == commandsend) {
-		fprintf(stderr, "%s: Invalid command %s\n", *argv, commandname);
-		mcserver_usage(*argv);
-	}
-
-	storage_init(args.data);
-	manifest_init(CONFIG_VERSION_MANIFEST_URL, args.max_age);
-
-	current->run(&args);
-
-	return EXIT_SUCCESS;
 }

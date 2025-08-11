@@ -1,22 +1,17 @@
 #ifndef STORAGE_H
 #define STORAGE_H
 
-#include <time.h>
+#include <stddef.h>
 
-#include "version.h"
-#include "manifest.h"
+char *storage_version_manifest_path(void);
 
-void
-storage_init(const char *dir);
+char *storage_archive_path(const char *id);
 
-const char *
-storage_version_manifest_path(void);
+char *storage_world_directory(const char *world);
 
-const char *
-storage_server_archive_path(enum version version, const char *id);
+void storage_fetch(const char *path, const char *url);
 
-void
-storage_download_server_archive(enum version version, const char *id, const struct server_archive *archive);
+void storage_fetch_and_verify(const char *path, const char *url, const char *sha1, size_t expected_size);
 
 /* STORAGE_H */
 #endif

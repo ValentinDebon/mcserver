@@ -6,14 +6,18 @@
 .Nd manage Minecraft Java Edition server instances
 .Sh SYNOPSIS
 .Nm mcserver
-.Op Fl snapshot Ar id
-.Op Fl release Ar id
-.Op Fl beta Ar id
-.Op Fl alpha Ar id
+.Op Fl version Ar version
+.Op Fl world Ar name
 .Op Fl jvm Ar path
-.Op Fl world Ar path
+.Op Fl noupdate
 .Op Fl nocache
-.Cm install|launch|version
+.Cm launch
+.Ar ...
+.Nm mcserver
+.Op Fl version Ar version
+.Op Fl noupdate
+.Op Fl nocache
+.Cm install
 .Nm mcserver
 .Fl help
 .Sh DESCRIPTION

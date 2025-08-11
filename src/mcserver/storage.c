@@ -1,191 +1,261 @@
 #include "storage.h"
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/stat.h>
+#include <ctype.h>
 #include <errno.h>
 #include <err.h>
+
+#include <stdbool.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
 
 #include <curl/curl.h>
 #include <openssl/evp.h>
 
-/* The terminating slash is important for path compositions */
+/* The terminating slashes are important for path compositions. */
 #ifdef __APPLE__
-#define STORAGE_DATA_DIR  "Library/Application Support/mcserver/"
+#define STORAGE_DATA_DIR "Library/Application Support/mcserver/"
 #else
-#define STORAGE_DATA_DIR  ".local/share/mcserver/"
+#define STORAGE_DATA_DIR ".local/share/mcserver/"
 #endif
 
 #define STORAGE_DATA_VERSION_MANIFEST_FILE "version_manifest.json"
-#define STORAGE_DATA_SERVER_ARCHIVES_DIR "server-archives/"
-#define STORAGE_SERVER_ARCHIVE_EXTENSION ".jar"
-
-#define STORAGE_SERVER_ARCHIVE_PATH_SIZE(idlen) (storage.pathlen \
-	+ sizeof (STORAGE_DATA_SERVER_ARCHIVES_DIR) + idlen + sizeof (STORAGE_SERVER_ARCHIVE_EXTENSION) - 1)
-
-struct archive_entry {
-	char *name;
-	time_t mtime;
-};
+#define STORAGE_DATA_ARCHIVES_DIR "archives/"
+#define STORAGE_DATA_WORLDS_DIR "worlds/"
 
 static struct {
 	char *path;
-	size_t pathlen;
-
-	char *transient;
-	size_t transientlen;
+	struct winsize ws;
 } storage;
 
-static void
-storage_deinit(void) {
-	free(storage.path);
-	free(storage.transient);
-}
-
-void
-storage_init(const char *dir) {
-	const char *home = getenv("HOME");
+static void __attribute__((constructor))
+storage_setup(void) {
+	const char * const home = getenv("HOME");
 
 	if (home == NULL || *home != '/') {
-		errx(EXIT_FAILURE, "Unable to get home directory");
+		errx(EXIT_FAILURE, "Degenerate $HOME");
 	}
 
-	const size_t homelen = strlen(home);
-
-	if (dir == NULL) {
-		static const char userdata[] = STORAGE_DATA_DIR;
-		char path[homelen + sizeof (userdata) + 1];
-
-		strncpy(path, home, homelen);
-
-		size_t position = homelen;
-		if (path[position - 1] != '/') {
-			path[position] = '/';
-			position++;
-		}
-
-		strncpy(path + position, userdata, sizeof (userdata));
-
-		storage.path = strdup(path);
-	} else {
-		storage.path = strdup(dir);
+	if (asprintf(&storage.path, "%s/" STORAGE_DATA_DIR, home) < 0) {
+		errx(EXIT_FAILURE, "asprintf");
 	}
 
 	if (mkdir(storage.path, 0777) != 0 && errno != EEXIST) {
-		err(EXIT_FAILURE, "mkdir %s", storage.path);
+		err(EXIT_FAILURE, "mkdir '%s'", storage.path);
 	}
 
-	storage.pathlen = strlen(storage.path);
-
-	char archivespath[storage.pathlen + sizeof (STORAGE_DATA_SERVER_ARCHIVES_DIR)];
-	*stpncpy(stpncpy(archivespath,
-		storage.path, storage.pathlen),
-		STORAGE_DATA_SERVER_ARCHIVES_DIR, sizeof (STORAGE_DATA_SERVER_ARCHIVES_DIR) - 1)
-	= '\0';
-
-	if (mkdir(archivespath, 0777) != 0 && errno != EEXIST) {
-		err(EXIT_FAILURE, "mkdir %s", archivespath);
+	if (ioctl(STDIN_FILENO, TIOCGWINSZ, &storage.ws) != 0) {
+		storage.ws.ws_col = 0;
 	}
 
-	storage.transient = NULL;
-	storage.transientlen = 0;
-
-	atexit(storage_deinit);
+	/* NB: storage.path leaks, missing a free. */
 }
 
-static const char *
-storage_transient_set(const char *string, size_t stringlen) {
-
-	if (stringlen > storage.transientlen) {
-		char *newtransient = realloc(storage.transient, stringlen + 1);
-		if (newtransient == NULL) {
-			err(EXIT_FAILURE, "realloc");
-		}
-		storage.transient = newtransient;
-		storage.transientlen = stringlen;
-	}
-
-	return strncpy(storage.transient, string, storage.transientlen + 1);
-}
-
-const char *
+char *
 storage_version_manifest_path(void) {
-	char path[storage.pathlen + sizeof (STORAGE_DATA_VERSION_MANIFEST_FILE)];
+	char *path;
 
-	*stpncpy(stpncpy(path,
-		storage.path, storage.pathlen),
-		STORAGE_DATA_VERSION_MANIFEST_FILE, sizeof (STORAGE_DATA_VERSION_MANIFEST_FILE) - 1)
-	= '\0';
+	if (asprintf(&path, "%s" STORAGE_DATA_VERSION_MANIFEST_FILE, storage.path) < 0) {
+		errx(EXIT_FAILURE, "asprintf");
+	}
 
-	return storage_transient_set(path, sizeof (path) - 1);
+	return path;
 }
 
-static void
-storage_server_archive_path_init(char *path, const char *id, size_t idlen) {
-	*stpncpy(stpncpy(stpncpy(stpncpy(path,
-		storage.path, storage.pathlen),
-		STORAGE_DATA_SERVER_ARCHIVES_DIR, sizeof (STORAGE_DATA_SERVER_ARCHIVES_DIR) - 1),
-		id, idlen),
-		STORAGE_SERVER_ARCHIVE_EXTENSION, sizeof (STORAGE_SERVER_ARCHIVE_EXTENSION) - 1)
-	= '\0';
+char *
+storage_archive_path(const char *id) {
+	char *path;
+
+	if (*id == '\0' || *id == '.'
+		|| strchr(id, '/') != NULL) {
+		errx(EXIT_FAILURE, "Invalid id '%s'", id);
+	}
+
+	if (asprintf(&path, "%s" STORAGE_DATA_ARCHIVES_DIR "%s.jar", storage.path, id) < 0) {
+		errx(EXIT_FAILURE, "asprintf");
+	}
+
+	char * const separator = strrchr(path, '/');
+	*separator = '\0';
+	if (mkdir(path, 0777) != 0 && errno != EEXIST) {
+		err(EXIT_FAILURE, "mkdir '%s'", path);
+	}
+	*separator = '/';
+
+	return path;
 }
 
+char *
+storage_world_directory(const char *world) {
+	char *path;
 
-const char *
-storage_server_archive_path(enum version version, const char *id) {
-	const size_t idlen = strlen(id);
-	char path[STORAGE_SERVER_ARCHIVE_PATH_SIZE(idlen)];
+	if (*world == '\0' || *world == '.'
+		|| strchr(world, '/') != NULL) {
+		errx(EXIT_FAILURE, "Invalid world '%s'", world);
+	}
 
-	storage_server_archive_path_init(path, id, idlen);
+	if (asprintf(&path, "%s" STORAGE_DATA_WORLDS_DIR "%s", storage.path, world) < 0) {
+		errx(EXIT_FAILURE, "asprintf");
+	}
 
-	return storage_transient_set(path, sizeof (path) - 1);
+	char * const separator = strrchr(path, '/');
+	*separator = '\0';
+	if (mkdir(path, 0777) != 0 && errno != EEXIST) {
+		err(EXIT_FAILURE, "mkdir '%s'", path);
+	}
+	*separator = '/';
+
+	if (mkdir(path, 0777) != 0 && errno != EEXIST) {
+		err(EXIT_FAILURE, "mkdir '%s'", path);
+	}
+
+	return path;
+}
+
+void
+storage_fetch(const char *path, const char *url) {
+	FILE * const filep = fopen(path, "w");
+	CURL * const easy = curl_easy_init();
+
+	if (filep == NULL) {
+		err(EXIT_FAILURE, "fopen '%s'", path);
+	}
+
+	curl_easy_setopt(easy, CURLOPT_URL, url);
+	curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "https");
+	curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, fwrite);
+	curl_easy_setopt(easy, CURLOPT_WRITEDATA, filep);
+
+	const CURLcode res = curl_easy_perform(easy);
+	if (res != CURLE_OK) {
+		unlink(path);
+		errx(EXIT_FAILURE, "curl_easy_perform '%s': %s", url, curl_easy_strerror(res));
+	}
+
+	curl_easy_cleanup(easy);
+	fclose(filep);
+}
+
+static inline uint8_t 
+hex2nibble(uint8_t hex) {
+       return isdigit(hex) ? hex - '0' : hex - 'a' + 10;
 }
 
 static int
-storage_download_progress(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
-	char progress[] = " [                               ]\r";
+storage_fetch_progress_interactive(void *clientp,
+	curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
+	char progress[storage.ws.ws_col];
+	char *cursor = progress;
+
+	cursor = stpcpy(cursor, clientp);
+	*cursor++ = ' ';
+	*cursor++ = '[';
+
+	const size_t gap = progress + sizeof (progress) - cursor - 2;
 	size_t filled = 0;
 
-	if (dltotal > 0) {
-		filled = (float)dlnow / dltotal * (sizeof (progress) - 5);
+	if (dltotal != 0) {
+		filled = dlnow * gap / dltotal;
 	}
 
-	memset(progress + 2, '-', filled);
+	memset(cursor, '=', filled);
+	cursor += filled;
 
-	fputs(clientp, stdout);
-	fputs(progress, stdout);
+	memset(cursor, ' ', gap - filled);
+	cursor += gap - filled;
+
+	*cursor++ = ']';
+	*cursor++ = '\r';
+
+	fwrite(progress, sizeof (*progress), sizeof (progress), stdout);
 	fflush(stdout);
 
 	return 0;
 }
 
-static bool
-storage_check_server_archive(const char *path, const uint8_t *ardigest, size_t ardigestsz, size_t arsize) {
+void
+storage_fetch_and_verify(const char *path, const char *url, const char *sha1, size_t expected_size) {
+	uint8_t expected_digest[20];
+
+	/* Hexadecimal string, two nibbles per byte. */
+	if (strlen(sha1) != 2 * sizeof (expected_digest)) {
+		errx(EXIT_FAILURE, "Invalid SHA1 digest length for '%s'", sha1);
+	}
+
+	for (unsigned i = 0; i < sizeof (expected_digest); i++) {
+		const char high = sha1[2 * i], low = sha1[2 * i + 1];
+
+		if (!isxdigit(high) || !isxdigit(low)) {
+			errx(EXIT_FAILURE, "Invalid SHA1 digest '%s', expected a hexadecimal string", sha1);
+		}
+
+		expected_digest[i] = hex2nibble(high) << 4 | hex2nibble(low);
+	}
+
+	/* Download server archive. */
+	FILE * const filep = fopen(path, "w");
+	CURL * const easy = curl_easy_init();
+
+	if (filep == NULL) {
+		err(EXIT_FAILURE, "fopen '%s'", path);
+	}
+
+	curl_easy_setopt(easy, CURLOPT_URL, url);
+	curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "https");
+	curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, fwrite);
+	curl_easy_setopt(easy, CURLOPT_WRITEDATA, filep);
+
+	char linefeed;
+	const char * const name = strrchr(path, '/') + 1;
+	if (strlen(name) + 4 <= storage.ws.ws_col) { /* 4 == strlen(" []\r") */
+		/* Enable interactive progress if the name is not too long. */
+		curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, storage_fetch_progress_interactive);
+		curl_easy_setopt(easy, CURLOPT_XFERINFODATA, name);
+		linefeed = '\n';
+	} else {
+		linefeed = '\0';
+	}
+	curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
+
+	const CURLcode res = curl_easy_perform(easy);
+
+	if (linefeed) {
+		fputc(linefeed, stdout);
+	}
+
+	if (res != CURLE_OK) {
+		unlink(path);
+		errx(EXIT_FAILURE, "curl_easy_perform '%s': %s", url, curl_easy_strerror(res));
+	}
+
+	curl_easy_cleanup(easy);
+	fclose(filep);
+
+	/* Verify server archive signature. */
 	EVP_MD_CTX * const ctx = EVP_MD_CTX_new();
-	int fd = open(path, O_RDONLY);
-	bool success = false;
+	const int fd = open(path, O_RDONLY);
+	bool valid = false;
 
 	do {
 		char buffer[getpagesize()];
-		ssize_t readval;
+		ssize_t copied;
 
-		if(fd < 0) {
+		if (fd < 0) {
 			warn("open %s", path);
 			break;
 		}
 
 		EVP_DigestInit_ex(ctx, EVP_sha1(), NULL);
 
-		while(readval = read(fd, buffer, sizeof(buffer)), readval > 0) {
-			EVP_DigestUpdate(ctx, buffer, readval);
-			arsize -= readval;
+		while (copied = read(fd, buffer, sizeof (buffer)), copied > 0) {
+			EVP_DigestUpdate(ctx, buffer, copied);
+			expected_size -= copied;
 		}
 
-		if(readval != 0) {
+		if (copied != 0) {
 			warn("read %s", path);
 			break;
 		}
@@ -195,60 +265,30 @@ storage_check_server_archive(const char *path, const uint8_t *ardigest, size_t a
 
 		EVP_DigestFinal_ex(ctx, digest, &digestsz);
 
-		if(ardigestsz != digestsz || memcmp(digest, ardigest, digestsz) != 0) {
+		if (sizeof (expected_digest) != digestsz
+			|| memcmp(digest, expected_digest, digestsz) != 0) {
 			warnx("Incoherent digest for downloaded archive!");
 			break;
 		}
 
-		if(arsize != 0) {
+		if (expected_size != 0) {
 			warnx("Incoherent size for downloaded archive!");
 			break;
 		}
 
-		success = true;
+		valid = true;
 	} while (0);
 
 	close(fd);
 	EVP_MD_CTX_free(ctx);
 
-	return success;
-}
-
-void
-storage_download_server_archive(enum version version, const char *id, const struct server_archive *archive) {
-	const size_t idlen = strlen(id);
-	char path[STORAGE_SERVER_ARCHIVE_PATH_SIZE(idlen)];
-
-	storage_server_archive_path_init(path, id, idlen);
-
-	FILE *filep = fopen(path, "w");
-	CURL *easy = curl_easy_init();
-
-	if (filep == NULL) {
-		err(EXIT_FAILURE, "fopen %s", path);
-	}
-
-	curl_easy_setopt(easy, CURLOPT_URL, archive->url);
-	curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "https");
-	curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, fwrite);
-	curl_easy_setopt(easy, CURLOPT_WRITEDATA, filep);
-
-	if (!!isatty(STDOUT_FILENO)) {
-		curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, storage_download_progress);
-		curl_easy_setopt(easy, CURLOPT_XFERINFODATA, id);
-		curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
-	}
-
-	const CURLcode res = curl_easy_perform(easy);
-	if (res != CURLE_OK) {
-		errx(EXIT_FAILURE, "curl_easy_perform %s: %s", archive->url, curl_easy_strerror(res));
-	}
-
-	curl_easy_cleanup(easy);
-	fclose(filep);
-
-	if (!storage_check_server_archive(path, archive->sha1, sizeof (archive->sha1), archive->size)) {
+	if (!valid) {
 		unlink(path);
-		errx(EXIT_FAILURE, "Unable to check validity of archive for version %s", id);
+		exit(EXIT_FAILURE);
+	}
+
+	/* Make the archive read only. */
+	if (chmod(path, 0444) != 0) {
+		warn("chmod '%s'", path);
 	}
 }

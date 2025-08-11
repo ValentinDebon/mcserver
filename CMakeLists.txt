@@ -45,7 +45,7 @@ target_link_libraries(mcserver PUBLIC ${OPENSSL_LIBRARIES} ${CURL_LIBRARIES} ${J
 ###########
 
 install(TARGETS mcserver RUNTIME)
-install(FILES man/mcserver.1 TYPE MAN)
+install(DIRECTORY man1 TYPE MAN)
 
 #############
 # Packaging #

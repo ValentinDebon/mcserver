@@ -30,18 +30,15 @@ Install the latest version:
 mcserver install # Install latest release archive
 ```
 
-Launch a server on the latest version in the current working directory:
+Launch a server for a world named `$(hostname)` on the latest version, installing it if necessary:
 ```
-mcserver -world . launch
+mcserver launch
 ```
-Note the launch sub-command may update the manifest but won't
-install a new version. So you may want to always do install
-before launch.
 
 You can specify an explicit version, even an alpha or a beta:
 ```
-mcserver -release 1.16.5 install
-mcserver -alpha a1.2.2a install
+mcserver -version release/1.16.5 install
+mcserver -version alpha/a1.2.2a install
 ```
 
 ## Dependencies
