@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 
 project(MCServer
-	VERSION 0.0.1
+	VERSION 1.0.0
 	DESCRIPTION "Minecraft Java Edition Vanilla Servers Manager"
 	HOMEPAGE_URL "https://github.com/ValentinDebon/mcserver"
 	LANGUAGES C
@@ -29,15 +29,15 @@ find_library(JSON_C_LIBRARIES json-c REQUIRED)
 
 include_directories(${OPENSSL_INCLUDE_DIR} ${CURL_INCLUDE_DIRS} ${JSON_C_INCLUDE_DIRS})
 
-configure_file(src/mcserver/config.h.in src/mcserver/config.h)
+configure_file(src/config.h.in src/config.h)
 
 add_executable(mcserver
-	src/mcserver/main.c
-	src/mcserver/manifest.c
-	src/mcserver/storage.c
+	src/mcserver.c
+	src/manifest.c
+	src/storage.c
 )
 
-target_include_directories(mcserver PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/src/mcserver")
+target_include_directories(mcserver PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/src")
 target_link_libraries(mcserver PUBLIC ${OPENSSL_LIBRARIES} ${CURL_LIBRARIES} ${JSON_C_LIBRARIES})
 
 ###########
@@ -51,8 +51,10 @@ install(DIRECTORY man1 TYPE MAN)
 # Packaging #
 #############
 
-set(CPACK_GENERATOR DEB)
-set(CPACK_PACKAGE_CONTACT "Valentin Debon <valentin.debon@heylelos.org>")
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "java-runtime-headless, libcurl4 (>= 7.85.0), libssl3 (>= 1.1), libjson-c5")
+if("DEB" IN_LIST CPACK_GENERATOR)
+	set(CPACK_PACKAGE_CONTACT "Valentin Debon <valentin.debon@heylelos.org>")
+	set(CPACK_DEBIAN_PACKAGE_DEPENDS "java-runtime-headless, libcurl4 (>= 7.85.0), libssl3 (>= 1.1), libjson-c5")
+	set(CPACK_DEBIAN_PACKAGE_SECTION "games")
+endif()
 
 include(CPack)

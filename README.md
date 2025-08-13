@@ -1,6 +1,6 @@
 # MCServer
 
-Command line interface (CLI) tool to manage Minecraft Java Edition Vanilla Server instances.
+Command line interface tool to manage Minecraft Java Edition Vanilla Server instances.
 
 ## Why?
 
@@ -38,7 +38,7 @@ mcserver launch
 You can specify an explicit version, even an alpha or a beta:
 ```
 mcserver -version release/1.16.5 install
-mcserver -version alpha/a1.2.2a install
+mcserver -version old_alpha/a1.2.2a install
 ```
 
 ## Dependencies
@@ -64,5 +64,10 @@ cmake --install build
 
 Or, you can create the Debian package (.deb) archive:
 ```
+cmake -B build -S . -DCPACK_GENERATOR=DEB
 cmake --build build --target package
 ```
+
+## Copying
+
+Jormungandr sources, binaries and documentations are distributed under the Affero GNU Public License version 3.0, see LICENSE.
